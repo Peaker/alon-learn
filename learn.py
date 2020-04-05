@@ -7,27 +7,41 @@ antialias = True
 CHANNEL_ENDEVENT = pygame.USEREVENT + 1
 
 class Widget:
-    def __init__(self, img, topleft, click):
+    def __init__(self, img, topleft, click = None):
         self.img = img
         self.left, self.top = topleft
         self.width, self.height = self.img.get_size()
+        assert click is None or callable(click)
         self._click = click
     def draw(self, screen):
         screen.blit(self.img, (self.left, self.top))
-    def click(self, (x, y)):
+    def click(self, pos):
+        x, y = pos
+        if self._click is None:
+            return None
         if not self.left <= x < self.left + self.width:
             return None
         if not self.top <= y < self.top + self.height:
             return None
         return self._click()
+    @classmethod
+    def centered(cls, img, pos, click = None):
+        x, y = pos
+        return cls(img, (x - img.get_width()/2,
+                         y - img.get_height()/2), click)
 
 class Letter:
     def __init__(self, font, letter):
         self.letter = letter
         self.img = font.render(letter, antialias, (255, 0, 0))
-        self.sound = pygame.mixer.Sound("%s.ogg" % letter.lower())
+        self.sound = pygame.mixer.Sound("audio/%s.ogg" % letter.lower())
 
 smiley = "🙂"
+
+def load_img(path, desired_width):
+    img = pygame.image.load(path)
+    w, h = img.get_size()
+    return pygame.transform.scale(img, (desired_width, h * 80 // desired_width))
 
 class Game:
     def __init__(self, screen):
@@ -35,15 +49,18 @@ class Game:
         self.channel = None
         self.channel_end_cb = []
         self.cur_bg_color = (0, 0, 0)
-        self.font = pygame.font.SysFont(None, 460)
+        self.font = pygame.font.Font("../lamdu/lamdu/data/fonts/DejaVuSans.ttf", 240)
+
+        self.smiley_img = load_img("imgs/smiley.jpg", 300)
+
         self.letters = [Letter(self.font, letter) for letter in "ABCDEFGHIJK"]
 
         self.streak = self.good = self.bad = 0
         self.subset_size = 3
         self.focus = 0 # Start with 'A'
-        self.press_sound = pygame.mixer.Sound("press.ogg")
-        self.yay_sound = pygame.mixer.Sound("yay.ogg")
-        self.basa_sound = pygame.mixer.Sound("basa.ogg")
+        self.press_sound = pygame.mixer.Sound("audio/press.ogg")
+        self.yay_sound = pygame.mixer.Sound("audio/yay.ogg")
+        self.basa_sound = pygame.mixer.Sound("audio/basa.ogg")
         self.start_round()
 
     def hit(self):
@@ -65,8 +82,9 @@ class Game:
             self.streak = 0
         self.streak -= 1
         if self.streak % 2 == 0:
-            self.restore_focus = max(0, self.focus - 1)
-            self.focus = None
+            if self.focus is not None:
+                self.restore_focus = max(0, self.focus - 1)
+                self.focus = None
             print("Lost focus, will restore to", self.letters[self.restore_focus].letter)
             self.subset_size -= 1
             self.subset_size = max(self.subset_size, 3)
@@ -79,23 +97,32 @@ class Game:
             current_chosen = random.choice(letters)
             print("Chosen random:", current_chosen.letter)
         else:
-            current_chosen = letters[self.focus]
-            print("Chosen focus:", current_chosen.letter)
+            current_chosen = focused_letter = self.letters[self.focus]
+            if focused_letter not in letters:
+                letters[random.choice(range(len(letters)))] = focused_letter
+
+        class state:
+            round_complete = False
 
         def please_press():
+            if state.round_complete:
+                return
             def play_chosen_letter():
                 self.play(current_chosen.sound)
             self.play(self.press_sound, play_chosen_letter)
         please_press()
 
         width, height = self.screen.get_size()
-        qmark_img = self.font.render("?", antialias, (255, 0, 0))
-        font_height = qmark_img.get_height()
-        self.qmark = Widget(
-            qmark_img, (width // 2 - qmark_img.get_width()/2,
-                        height // 2 - font_height/2), please_press)
+        self.qmark = Widget.centered(self.font.render("?", antialias, (255, 0, 0)), (width / 2, height / 2), please_press)
+        font_height = self.qmark.height
 
-        self.widgets = [ self.qmark ]
+        self.widgets = [
+            self.qmark,
+        ]
+
+        self.widgets.extend(
+            Widget(self.smiley_img, (15 + i * self.smiley_img.get_width() * 1.1, 15))
+            for i in range(min(5, self.streak)))
 
         pad = 1.2
         avg_letter_width = sum(letter.img.get_width()*pad for letter in letters) / len(letters)
@@ -111,11 +138,15 @@ class Game:
                     if is_right:
                         self.start_round()
                 def click():
+                    if state.round_complete:
+                        return None
+                    self.stop_play()
                     if is_right:
+                        state.round_complete = True
                         self.hit()
                         green_rect = pygame.surface.Surface(img.get_size())
                         green_rect.fill((0, 100, 0, 1.0))
-                        self.widgets.insert(0, Widget(green_rect, pos, img.get_size()))
+                        self.widgets.insert(0, Widget(green_rect, pos))
                     else:
                         self.miss()
                         self.cur_bg_color = (150, 0, 0)
@@ -148,6 +179,10 @@ class Game:
         if self.channel is None:
             return
         # print("Stopping ", self.channel, " which is busy=", self.channel.get_busy())
+
+        # Stop means we don't want its callback to take effect:
+        self.channel_end_cb[0] = None
+
         self.channel.stop()
         self.channel = None
 
@@ -163,16 +198,10 @@ class Game:
         self.cur_bg_color = tuple(component * .9 for component in self.cur_bg_color)
         for widget in self.widgets:
             widget.draw(self.screen)
-        # text_width = self.qmark.get_width()
-        # text_height = self.qmark.get_height()
-        # self.screen.blit(self.qmark, (width // 2 - text_width // 2, height // 2 - text_height))
-        # self.screen.blit(self.letters["A"], (width // 2 - 4*text_width // 2, height // 2))
-        # self.screen.blit(self.letters["B"], (width // 2 - text_width // 2, height // 2))
-        # self.screen.blit(self.letters["C"], (width // 2 + 2*text_width // 2, height // 2))
 
 def main():
     pygame.init()
-    screen = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
+    screen = pygame.display.set_mode((1920, 1200)) #, pygame.FULLSCREEN)
     clock = pygame.time.Clock()
     game = Game(screen)
     while True:
