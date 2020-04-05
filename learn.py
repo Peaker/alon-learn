@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import pygame
 import random
 
@@ -26,6 +27,8 @@ class Letter:
         self.img = font.render(letter, antialias, (255, 0, 0))
         self.sound = pygame.mixer.Sound("%s.ogg" % letter.lower())
 
+smiley = "🙂"
+
 class Game:
     def __init__(self, screen):
         self.screen = screen
@@ -37,6 +40,7 @@ class Game:
 
         self.streak = self.good = self.bad = 0
         self.subset_size = 3
+        self.focus = 0 # Start with 'A'
         self.press_sound = pygame.mixer.Sound("press.ogg")
         self.yay_sound = pygame.mixer.Sound("yay.ogg")
         self.basa_sound = pygame.mixer.Sound("basa.ogg")
@@ -48,19 +52,35 @@ class Game:
             self.streak = 0
         self.streak += 1
         if self.streak % 3 == 0:
-            self.subset_size += 1
+            if self.focus is None:
+                self.focus = self.restore_focus
+                print("Restored focus to", self.letters[self.focus].letter)
+            if self.subset_size < len(self.letters):
+                self.subset_size += 1
+            if self.focus < self.subset_size - 1:
+                self.focus += 1
+                print("Moved focus to", self.letters[self.focus].letter)
     def miss(self):
         if self.streak > 0:
             self.streak = 0
         self.streak -= 1
         if self.streak % 2 == 0:
+            self.restore_focus = max(0, self.focus - 1)
+            self.focus = None
+            print("Lost focus, will restore to", self.letters[self.restore_focus].letter)
             self.subset_size -= 1
             self.subset_size = max(self.subset_size, 3)
         self.bad += 1
 
     def start_round(self):
+        assert self.focus < self.subset_size
         letters = random.sample(self.letters[:self.subset_size], min(6, self.subset_size))
-        current_chosen = random.choice(letters)
+        if self.focus is None:
+            current_chosen = random.choice(letters)
+            print("Chosen random:", current_chosen.letter)
+        else:
+            current_chosen = letters[self.focus]
+            print("Chosen focus:", current_chosen.letter)
 
         def please_press():
             def play_chosen_letter():
