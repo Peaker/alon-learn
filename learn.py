@@ -112,11 +112,11 @@ class Game:
         please_press()
 
         width, height = self.screen.get_size()
-        self.qmark = Widget.centered(self.font.render("?", antialias, (255, 0, 0)), (width / 2, height / 2), please_press)
-        font_height = self.qmark.height
+        self.instructions = Widget.centered(self.font.render("!", antialias, (255, 0, 0)), (width / 2, height / 2), please_press)
+        font_height = self.instructions.height
 
         self.widgets = [
-            self.qmark,
+            self.instructions,
         ]
 
         self.widgets.extend(
