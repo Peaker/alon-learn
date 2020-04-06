@@ -36,8 +36,6 @@ class Letter:
         self.img = font.render(letter, antialias, (255, 0, 0))
         self.sound = pygame.mixer.Sound("audio/%s.ogg" % letter.lower())
 
-smiley = "🙂"
-
 def load_img(path, desired_width):
     img = pygame.image.load(path)
     w, h = img.get_size()
@@ -61,6 +59,7 @@ class Game:
         self.press_sound = pygame.mixer.Sound("audio/press.ogg")
         self.yay_sound = pygame.mixer.Sound("audio/yay.ogg")
         self.basa_sound = pygame.mixer.Sound("audio/basa.ogg")
+        self.passed_level_sound = pygame.mixer.Sound("audio/passedlevel.ogg")
         self.start_round()
 
     def hit(self):
@@ -122,7 +121,7 @@ class Game:
 
         self.widgets.extend(
             Widget(self.smiley_img, (15 + i * self.smiley_img.get_width() * 1.1, 15))
-            for i in range(min(5, self.streak)))
+            for i in range(self.streak % 5))
 
         pad = 1.2
         avg_letter_width = sum(letter.img.get_width()*pad for letter in letters) / len(letters)
@@ -147,6 +146,9 @@ class Game:
                         green_rect = pygame.surface.Surface(img.get_size())
                         green_rect.fill((0, 100, 0, 1.0))
                         self.widgets.insert(0, Widget(green_rect, pos))
+                        if self.streak % 5 == 0:
+                            self.play(self.passed_level_sound, done_feedback)
+                            return
                     else:
                         self.miss()
                         self.cur_bg_color = (150, 0, 0)
