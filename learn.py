@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import pygame
 import random
+from functools import wraps
 
 antialias = True
 
@@ -13,9 +14,14 @@ class Widget:
         self.width, self.height = self.img.get_size()
         assert click is None or callable(click)
         self._click = click
+        self.is_hidden = lambda : False
     def draw(self, screen):
+        if self.is_hidden():
+            return
         screen.blit(self.img, (self.left, self.top))
     def click(self, pos):
+        if self.is_hidden():
+            return None
         x, y = pos
         if self._click is None:
             return None
@@ -35,6 +41,7 @@ class Letter:
         self.letter = letter
         self.img = font.render(letter, antialias, (255, 0, 0))
         self.sound = pygame.mixer.Sound("audio/%s.ogg" % letter.lower())
+        self.hidden = False
 
 def load_img(path, desired_width):
     img = pygame.image.load(path)
@@ -60,6 +67,11 @@ class Game:
         self.yay_sound = pygame.mixer.Sound("audio/yay.ogg")
         self.basa_sound = pygame.mixer.Sound("audio/basa.ogg")
         self.passed_level_sound = pygame.mixer.Sound("audio/passedlevel.ogg")
+
+        self.qmark_img = self.font.render("?", antialias, (255, 0, 255))
+        self.exclmark_img = self.font.render("!", antialias, (0, 255, 0))
+        self.font_height = self.qmark_img.get_height()
+
         self.start_round()
 
     def hit(self):
@@ -90,6 +102,7 @@ class Game:
         self.bad += 1
 
     def start_round(self):
+        for letter in self.letters: letter.hidden = False
         assert self.focus < self.subset_size
         letters = random.sample(self.letters[:self.subset_size], min(6, self.subset_size))
         if self.focus is None:
@@ -102,26 +115,27 @@ class Game:
 
         class state:
             round_complete = False
+            @staticmethod
+            def unless_complete(f):
+                @wraps(f)
+                def g(*args, **kw):
+                    if state.round_complete:
+                        return
+                    return f(*args, **kw)
+                return g
 
+        width, height = self.screen.get_size()
+
+        @state.unless_complete
         def please_press():
-            if state.round_complete:
-                return
             def play_chosen_letter():
                 self.play(current_chosen.sound)
             self.play(self.press_sound, play_chosen_letter)
         please_press()
 
-        width, height = self.screen.get_size()
-        self.instructions = Widget.centered(self.font.render("!", antialias, (255, 0, 0)), (width / 2, height / 2), please_press)
-        font_height = self.instructions.height
-
         self.widgets = [
-            self.instructions,
-        ]
-
-        self.widgets.extend(
             Widget(self.smiley_img, (15 + i * self.smiley_img.get_width() * 1.1, 15))
-            for i in range(self.streak % 5))
+            for i in range(self.streak % 5)]
 
         pad = 1.2
         avg_letter_width = sum(letter.img.get_width()*pad for letter in letters) / len(letters)
@@ -136,9 +150,8 @@ class Game:
                 def done_feedback():
                     if is_right:
                         self.start_round()
+                @state.unless_complete
                 def click():
-                    if state.round_complete:
-                        return None
                     self.stop_play()
                     if is_right:
                         state.round_complete = True
@@ -158,10 +171,25 @@ class Game:
                 return click
             w = letter_width(letter)
             offset = max(0, w - letter.img.get_width()*pad) / 2
-            pos = (posx + offset, height // 2 + font_height/2)
-            self.widgets.append(
-                Widget(letter.img, pos, clicked_letter(letter, pos, letter.img)))
+            pos = (posx + offset, height // 2 + self.font_height/2)
+            widget = Widget(letter.img, pos, clicked_letter(letter, pos, letter.img))
+            widget.is_hidden = lambda letter=letter: letter.hidden
+            self.widgets.append(widget)
             posx += w
+
+        @state.unless_complete
+        def hint():
+            if len(letters) <= 1:
+                return
+            wrong_letter = random.choice(list(set(letters) - set([current_chosen])))
+            wrong_letter.hidden = True
+            letters.remove(wrong_letter)
+
+        self.instructions = Widget.centered(
+            self.exclmark_img, (width / 2 - 100, height / 2), please_press)
+        self.qmark = Widget.centered(self.qmark_img, (width / 2 + 100, height / 2), hint)
+
+        self.widgets.extend((self.instructions, self.qmark))
 
 
     def click(self, button, pos):
