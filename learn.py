@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import pygame
 import random
+import string
 from functools import wraps
 
 antialias = True
@@ -58,7 +59,7 @@ class Game:
 
         self.smiley_img = load_img("imgs/smiley.jpg", 300)
 
-        self.letters = [Letter(self.font, letter) for letter in "ABCDEFGHIJK"]
+        self.letters = [Letter(self.font, letter) for letter in string.uppercase]
 
         self.streak = self.good = self.bad = 0
         self.subset_size = 3
